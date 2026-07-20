@@ -1,0 +1,18 @@
+infrastructures:
+  default: secured
+  secured:
+    name: Secured BaSyx Environment
+    template: mono-repo
+    components:
+      aasRepository:
+        baseUrl: http://localhost:8081/shells
+      submodelRepository:
+        baseUrl: http://localhost:8081/submodels
+      conceptDescriptionRepository:
+        baseUrl: http://localhost:8081/concept-descriptions
+    security:
+      type: oauth2
+      config:
+        flow: auth_code
+        issuer: "http://localhost:9096/realms/BaSyx"
+        clientId: "basyx-web-ui"

@@ -1,0 +1,111 @@
+services:
+  mongo:
+    container_name: mongo
+    image:  docker.io/mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongoAdmin
+      MONGO_INITDB_ROOT_PASSWORD: mongoPassword
+    healthcheck:
+      test: ["CMD", "mongosh", "--username", "mongoAdmin", "--password", "mongoPassword", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  aas-environment:
+    container_name: aas-environment
+    image: docker.io/eclipsebasyx/aas-environment:2.0.0-milestone-13
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./basyx/application.properties:/application/application.properties:ro
+      - ./aas:/application/aas:ro
+      - ./basyx/rbac_rules.json:/config/rbac_rules.json:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  aas-ui:
+    container_name: aas-web-ui
+    image: docker.io/eclipsebasyx/aas-gui:latest
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      ENDPOINT_CONFIG_AVAILABLE: "false"
+      ALLOW_EDITING: "true"
+      ALLOW_UPLOADING: "true"
+      ALLOW_LOGOUT: "true"
+      SM_VIEWER_EDITOR: "true"
+      START_PAGE_ROUTE_NAME: AASEditor
+    volumes:
+      - ./basyx-infra.yml:/basyx-infra.yml:ro
+    depends_on:
+      aas-environment:
+        condition: service_started
+  aas-registry:
+    container_name: aas-registry
+    image: docker.io/eclipsebasyx/aas-registry-log-mongodb:2.0.0-milestone-13
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      - SERVER_PORT=8080
+    volumes:
+      - ./basyx/aas-registry.yml:/workspace/config/application.yml:ro
+      - ./basyx/static/swagger-initializer.js:/workspace/BOOT-INF/classes/META-INF/resources/webjars/swagger-ui/5.32.2/swagger-initializer.js
+      - ./basyx/rbac_rules_registry.json:/config/rbac_rules.json:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+  keycloak-db:
+    container_name: keycloak-db
+    image: docker.io/postgres:16-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${KC_DB_USERNAME}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KC_DB_USERNAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  keycloak:
+    container_name: keycloak
+    image: quay.io/keycloak/keycloak:latest
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: ${KC_DB_USERNAME}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: "9096"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "true"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "9096:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+volumes:
+  keycloak-db-data:
+
+
+  # mginx:
+    # container_name: nginx
