@@ -1,0 +1,22 @@
+infrastructures:
+  default: secured
+  secured:
+    name: Secured BaSyx Environment
+    template: mono-repo
+    components:
+      aasRepository:
+        # [reverse-proxy] Same-origin path-based proxy → aas-environment:8081
+        baseUrl: https://192.168.56.212:8443/shells
+      submodelRepository:
+        # [reverse-proxy] Same-origin path-based proxy → aas-environment:8081
+        baseUrl: https://192.168.56.212:8443/submodels
+      conceptDescriptionRepository:
+        # [reverse-proxy] Same-origin path-based proxy → aas-environment:8081
+        baseUrl: https://192.168.56.212:8443/concept-descriptions
+    security:
+      type: oauth2
+      config:
+        flow: auth_code
+        # [reverse-proxy] Keycloak issuer changed from http://:9096 → https://:9443 (nginx proxy)
+        issuer: "https://192.168.56.212:9443/realms/BaSyx"
+        clientId: "basyx-web-ui"

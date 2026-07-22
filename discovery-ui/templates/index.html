@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal AAS Discovery</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>Universal AAS Discovery</h1>
+        <div class="stats">
+            <span id="shell-count">0 Products</span>
+            <span id="server-count">0 Servers</span>
+        </div>
+    </header>
+
+    <main>
+        <div class="search-bar">
+            <input type="text" id="search" placeholder="Search by name, ID, or server IP...">
+        </div>
+
+        <div class="content">
+            <section class="products">
+                <h2>Products</h2>
+                <div id="product-list" class="card-grid"></div>
+                <p id="no-results" class="empty-state" style="display:none;">No products found.</p>
+            </section>
+
+            <section class="servers">
+                <h2>Servers</h2>
+                <div id="server-list" class="card-grid"></div>
+            </section>
+        </div>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

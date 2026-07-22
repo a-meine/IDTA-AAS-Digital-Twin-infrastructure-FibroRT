@@ -1,0 +1,33 @@
+services:
+  central-registry:
+    container_name: central-registry
+    image: eclipsebasyx/aas-registry-log-mongodb:2.0.0-milestone-13
+    restart: unless-stopped
+    ports:
+      - "8085:8080"
+    environment:
+      - SERVER_PORT=8080
+      - HOST_IP=${HOST_IP}
+      - MONGO_USERNAME=${MONGO_USERNAME}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+    volumes:
+      - ./central-registry.yml:/workspace/config/application.yml:ro
+      - ./rbac_rules_central.json:/config/rbac_rules.json:ro
+    networks:
+      - basyx-setup_basyx-shared
+
+  discovery-ui:
+    container_name: discovery-ui
+    build: ../discovery-ui
+    restart: unless-stopped
+    environment:
+      - CENTRAL_REGISTRY_URL=http://central-registry:8080
+      - HOST_IP=${HOST_IP}
+    depends_on:
+      - central-registry
+    networks:
+      - basyx-setup_basyx-shared
+
+networks:
+  basyx-setup_basyx-shared:
+    external: true

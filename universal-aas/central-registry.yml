@@ -1,0 +1,27 @@
+spring:
+  mongodb:
+    uri: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo:27017/admin
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://${HOST_IP}:9443/realms/BaSyx
+          jwk-set-uri: http://keycloak:8080/realms/BaSyx/protocol/openid-connect/certs
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+basyx:
+  feature:
+    authorization:
+      enabled: false
+      type: rbac
+      jwtBearerTokenProvider: keycloak
+      rbac:
+        file: file:/config/rbac_rules.json
+  cors:
+    allowed-origins: 'https://${HOST_IP}:8443,https://${HOST_IP}:8444'
+    allowed-methods: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD

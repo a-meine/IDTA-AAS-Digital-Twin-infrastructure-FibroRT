@@ -1,0 +1,200 @@
+services:
+  mongo:
+    container_name: mongo
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    healthcheck:
+      test: ["CMD", "mongosh", "--username", "${MONGO_USERNAME}", "--password", "${MONGO_PASSWORD}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - default
+      - basyx-shared
+
+  aas-environment:
+    container_name: aas-environment
+    image: eclipsebasyx/aas-environment:2.0.0-milestone-13
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - HOST_IP=${HOST_IP}
+      - MONGO_USERNAME=${MONGO_USERNAME}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+    volumes:
+      - ./basyx/application.properties:/application/application.properties:ro
+      - ./aas:/application/aas:ro
+      - ./basyx/rbac_rules.json:/config/rbac_rules.json:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  aas-ui:
+    container_name: aas-web-ui
+    image: eclipsebasyx/aas-gui:latest
+    pull_policy: always
+    restart: unless-stopped
+    # [reverse-proxy] UI is no longer directly exposed; nginx:443 proxies here
+    # ports:
+    #   - "3000:3000"  # [reverse-proxy] removed — accessed via nginx on 443
+    environment:
+      ENDPOINT_CONFIG_AVAILABLE: "true"
+      ALLOW_EDITING: "true"
+      ALLOW_UPLOADING: "true"
+      ALLOW_LOGOUT: "true"
+      SM_VIEWER_EDITOR: "true"
+      # START_PAGE_ROUTE_NAME: AASEditor
+      KEYCLOAK_URL: "https://192.168.56.212:9443"
+      KEYCLOAK_REALM: "BaSyx"
+      KEYCLOAK_CLIENT_ID: "basyx-web-ui"
+      AAS_REPO_PATH: "/shells"
+      SUBMODEL_REPO_PATH: "/submodels"
+      CD_REPO_PATH: "/concept-descriptions"
+      AAS_REGISTRY_PATH: "/registry"
+    volumes:
+      - ./basyx-infra.yml:/basyx-infra.yml:ro
+    depends_on:
+      aas-environment:
+        condition: service_started
+
+  aas-registry:
+    container_name: aas-registry
+    image: eclipsebasyx/aas-registry-log-mongodb:2.0.0-milestone-13
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      - SERVER_PORT=8080
+      - HOST_IP=${HOST_IP}
+      - MONGO_USERNAME=${MONGO_USERNAME}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+    volumes:
+      - ./basyx/aas-registry.yml:/workspace/config/application.yml:ro
+      - ./basyx/static/swagger-initializer.js:/workspace/BOOT-INF/classes/META-INF/resources/webjars/swagger-ui/5.32.2/swagger-initializer.js
+      - ./basyx/rbac_rules_registry.json:/config/rbac_rules.json:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  keycloak-db:
+    container_name: keycloak-db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${KC_DB_USERNAME}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KC_DB_USERNAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+      - basyx-shared
+
+  keycloak:
+    container_name: keycloak
+    image: quay.io/keycloak/keycloak:latest
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: ${KC_DB_USERNAME}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HOSTNAME: ${HOST_IP}
+      KC_PROXY_HEADERS: "xforwarded"
+      # [reverse-proxy] Port changed from 9096 → 9443 (nginx proxies here)
+      KC_HOSTNAME_PORT: "9443"
+      KC_HOSTNAME_STRICT: "true"
+      # [reverse-proxy] Enabled HTTPS so Keycloak generates https:// OIDC URLs
+      KC_HOSTNAME_STRICT_HTTPS: "true"
+      KC_HEALTH_ENABLED: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    # [reverse-proxy] Removed direct 9096:8080 port mapping — nginx:9443 proxies here
+    # ports:
+    #   - "9096:8080"  # [reverse-proxy] removed — accessed via nginx on 9443
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    networks:
+      - default
+      - basyx-shared
+
+  # [reverse-proxy] NEW — HTTPS reverse proxy for UI and Keycloak
+  # Solves PKCE/crypto.subtle issue: OAuth2 auth_code flow requires a secure
+  # context (HTTPS or localhost). Self-signed cert lets the browser treat the
+  # page as a secure context.
+  nginx:
+    container_name: nginx
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"         # [redirect] HTTP → HTTPS :8443
+      - "8443:8443"   # [reverse-proxy] HTTPS → AAS Web UI + AAS Environment API
+      - "9443:9443"   # [reverse-proxy] HTTPS → Keycloak
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs/server.crt:/etc/nginx/certs/server.crt:ro
+      - ./nginx/certs/server.key:/etc/nginx/certs/server.key:ro
+    depends_on:
+      aas-ui:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+    networks:
+      - default
+      - basyx-shared
+  kafka:
+    container_name: basyx-kafka
+    image: confluentinc/cp-kafka:7.7.0
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft mode (no Zookeeper)
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # Listeners
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Single node dev settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+networks:
+  basyx-shared:
+    driver: bridge
+
+volumes:
+  keycloak-db-data:
+  mongo-data:

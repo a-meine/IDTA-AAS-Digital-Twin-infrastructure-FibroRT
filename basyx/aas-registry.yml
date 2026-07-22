@@ -1,0 +1,31 @@
+spring:
+  mongodb:
+    uri: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo:27017/admin
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # [reverse-proxy] issuer-uri changed to https://:9443 — must match JWT iss claim
+          issuer-uri: https://${HOST_IP}:9443/realms/BaSyx
+          # jwk-set-uri stays on internal Docker network (no TLS needed)
+          jwk-set-uri: http://keycloak:8080/realms/BaSyx/protocol/openid-connect/certs
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+basyx:
+  feature:
+    authorization:
+      # [fix] Disabled for internal registry — AAS Environment calls without auth
+      enabled: false
+      type: rbac
+      jwtBearerTokenProvider: keycloak
+      rbac:
+        file: file:/config/rbac_rules.json
+  cors:
+    # [reverse-proxy] allowed-origins — HTTPS on port 8443 (rootless Docker can't bind 443)
+    allowed-origins: 'https://${HOST_IP}:8443'
+    allowed-methods: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
